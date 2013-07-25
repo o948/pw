@@ -1,0 +1,234 @@
+#!/usr/bin/env python
+
+import cmd
+import getpass
+import hashlib
+import json
+import os
+import random
+import string
+import subprocess
+import sys
+from Crypto.Cipher import AES
+
+class Pw(cmd.Cmd, object):
+    def __init__(self, path):
+        super(Pw, self).__init__()
+        self.path = path
+        self.data = {}
+        self.key = None
+        self.prompt = '> '
+        self.undoc_header = 'commands:'
+        self.ruler = None
+
+    def preloop(self):
+        if os.path.exists(self.path):
+            with open(self.path, 'rb') as fp:
+                content = fp.read()
+            self.unlock_data(content)
+        else:
+            self.define_key()
+            self.save_data()
+        # fix completer:
+        try:
+            import readline
+            self.old_completer_delims = readline.get_completer_delims()
+            readline.set_completer_delims(string.whitespace)
+        except ImportError:
+            pass
+
+    def postloop(self):
+        try:
+            import readline
+            readline.set_completer_delims(self.old_completer_delims)
+        except ImportError:
+            pass
+
+    def default(self, s):
+        if s == 'EOF':
+            print
+            self.do_exit(s)
+        else:
+            self.do_help(None)
+
+    def emptyline(self):
+        pass
+
+    def do_help(self, s):
+        super(Pw, self).do_help(None)
+
+    def do_exit(self, s):
+        sys.exit(0)
+
+    def do_passwd(self, s):
+        self.define_key()
+        self.save_data()
+
+    def do_list(self, s):
+        for idx in sorted(self.data.keys()):
+            self.print_out(idx)
+
+    def do_add(self, s):
+        s = s.split(None, 3)
+        if len(s) < 3:
+            self.print_err('Usage: add <id> <user> <password> [note]')
+            return
+        if s[0] in self.data:
+            self.print_err('Id exists!')
+            return
+        self.data[s[0]] = [s[1], s[2], s[3] if len(s) > 3 else '']
+        self.save_data()
+
+    def do_get(self, s):
+        if not s:
+            self.print_err('Usage: get <id>')
+            return
+        self.get(s, show=False)
+
+    def complete_get(self, text, line, begidx, endidx):
+        return self.complete_ids(text, line, begidx, endidx)
+
+    def do_show(self, s):
+        if not s:
+            self.print_err('Usage: show <id>')
+            return
+        self.get(s, show=True)
+
+    def complete_show(self, text, line, begidx, endidx):
+        return self.complete_ids(text, line, begidx, endidx)
+
+    def do_del(self, s):
+        if not s:
+            self.print_err('Usage: del <id>')
+            return
+        if s not in self.data:
+            self.print_err('Not found!')
+            return
+        if self.confirm():
+            del self.data[s]
+            self.save_data()
+
+    def complete_del(self, text, line, begidx, endidx):
+        return self.complete_ids(text, line, begidx, endidx)
+
+    def do_gen(self, s):
+        try:
+            if not s:
+                raise ValueError()
+            s = s.split(None, 1)
+            if len(s) == 2:
+                flag, size = s
+                if flag != '--no-punct':
+                    raise ValueError()
+            else:
+                flag, size = None, s[0]
+            size = int(size)
+            if size < 1:
+                raise ValueError()
+        except ValueError:
+            self.print_err('Usage: gen [--no-punct] <length>')
+            return
+        charset = string.ascii_letters + string.digits
+        if not flag:
+            charset += string.punctuation
+        key = ''
+        for _ in range(size):
+            key += random.choice(charset)
+        self.print_out(key)
+        self.copy_to_clipboard(key)
+
+    def complete_gen(self, text, line, begidx, endidx):
+        flag = '--no-punct'
+        if flag.startswith(text) and flag not in line:
+            return [flag]
+        return []
+
+    def complete_ids(self, text, line, begidx, endidx):
+        argc = len(line.split()) - 1
+        if argc > 1 or argc == 1 and begidx == endidx:
+            return []
+        return filter(lambda x: x.startswith(text), self.data.keys())
+
+    def get(self, idx, show=False):
+        if idx not in self.data:
+            self.print_err('Not found!')
+            return
+        user, passwd, note = self.data[idx]
+        s = user
+        if show:
+            s += ' : ' + passwd
+        else:
+            s += ' : ******'
+        if note:
+            s += ' | ' + note
+        self.print_out(s)
+        self.copy_to_clipboard(passwd)
+
+    def unlock_data(self, encrypted):
+        while True:
+            key = getpass.getpass('password: ')
+            data = self.decrypt(encrypted, key)
+            if data is not None:
+                self.key = key
+                self.data = data
+                return
+            self.print_err('Wrong password!')
+
+    def define_key(self):
+        while True:
+            newkey = getpass.getpass('enter new password: ')
+            repeat = getpass.getpass('repeat new password: ')
+            if newkey == repeat:
+                self.key = newkey
+                return
+            self.print_err('Does not match!')
+
+    def save_data(self):
+        with open(self.path, 'wb') as fp:
+            fp.write(self.encrypt(self.data, self.key))
+
+    def confirm(self):
+        while True:
+            ans = raw_input('Are you sure? (y/n): ')
+            if ans == 'n':
+                return False
+            if ans == 'y':
+                return True
+
+    def print_out(self, s):
+        print '\x1b[32m%s\x1b[0m' % s
+
+    def print_err(self, s):
+        print '\x1b[31m%s\x1b[0m' % s
+
+    def copy_to_clipboard(self, s):
+        p = subprocess.Popen(['xsel', '-ib'], stdin=subprocess.PIPE)
+        p.stdin.write(s)
+        p.stdin.close()
+        p = subprocess.Popen(['xsel', '-ip'], stdin=subprocess.PIPE)
+        p.stdin.write(s)
+        p.stdin.close()
+
+    def encrypt(self, data, key):
+        data = json.dumps(data)
+        data += ' ' * (16 - len(data) % 16)
+        key = hashlib.sha256(key).digest()
+        return AES.new(key, AES.MODE_CBC, '\0' * 16).encrypt(data)
+
+    def decrypt(self, ciphertext, key):
+        key = hashlib.sha256(key).digest()
+        data = AES.new(key, AES.MODE_CBC, '\0' * 16).decrypt(ciphertext)
+        try:
+            return json.loads(data)
+        except ValueError as e:
+            return None
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        print >>sys.stderr, 'Usage: %s <data file>' % sys.argv[0]
+        sys.exit(1)
+    try:
+        Pw(sys.argv[1]).cmdloop()
+    except KeyboardInterrupt:
+        print
+        pass
