@@ -79,6 +79,21 @@ class Pw(cmd.Cmd, object):
         self.data[s[0]] = [s[1], s[2], s[3] if len(s) > 3 else '']
         self.save_data()
 
+    def do_edit(self, s):
+        s = s.split(None, 2)
+        if len(s) != 2:
+            self.print_err('Usage: edit <id> <new password>')
+            return
+        if s[0] not in self.data:
+            self.print_err('Not found!')
+            return
+        if self.confirm():
+            self.data[s[0]][1] = s[1]
+            self.save_data()
+
+    def complete_edit(self, text, line, begidx, endidx):
+        return self.complete_ids(text, line, begidx, endidx)
+
     def do_get(self, s):
         if not s:
             self.print_err('Usage: get <id>')
