@@ -111,43 +111,38 @@ class Pw(cmd.Cmd, object):
     def complete_del(self, text, line, begidx, endidx):
         return self.complete_ids(text, line, begidx, endidx)
 
+    def do_gen0(self, s):
+        try:
+            self.gen(s, punct=False)
+        except ValueError:
+            self.print_err('Usage: gen0 <length>')
+            return
+
     def do_gen(self, s):
         try:
-            if not s:
-                raise ValueError()
-            s = s.split(None, 1)
-            if len(s) == 2:
-                flag, size = s
-                if flag != '--no-punct':
-                    raise ValueError()
-            else:
-                flag, size = None, s[0]
-            size = int(size)
-            if size < 1:
-                raise ValueError()
+            self.gen(s, punct=True)
         except ValueError:
-            self.print_err('Usage: gen [--no-punct] <length>')
+            self.print_err('Usage: gen <length>')
             return
-        charset = string.ascii_letters + string.digits
-        if not flag:
-            charset += string.punctuation
-        key = ''
-        for _ in range(size):
-            key += random.choice(charset)
-        self.print_out(key)
-        self.copy_to_clipboard(key)
-
-    def complete_gen(self, text, line, begidx, endidx):
-        flag = '--no-punct'
-        if flag.startswith(text) and flag not in line:
-            return [flag]
-        return []
 
     def complete_ids(self, text, line, begidx, endidx):
         argc = len(line.split()) - 1
         if argc > 1 or argc == 1 and begidx == endidx:
             return []
         return filter(lambda x: x.startswith(text), self.data.keys())
+
+    def gen(self, size, punct=True):
+        size = int(size)
+        if size < 1:
+            raise ValueError()
+        charset = string.ascii_letters + string.digits
+        if punct:
+            charset += string.punctuation
+        key = ''
+        for _ in range(size):
+            key += random.choice(charset)
+        self.print_out(key)
+        self.copy_to_clipboard(key)
 
     def get(self, idx, show=False):
         if idx not in self.data:
