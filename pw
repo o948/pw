@@ -234,11 +234,12 @@ class Pw(cmd.Cmd, object):
             return None
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print >>sys.stderr, 'Usage: %s <data file>' % sys.argv[0]
-        sys.exit(1)
+    if len(sys.argv) == 1:
+        path = os.getenv('HOME') + '/.passwd'
+    else:
+        path = sys.argv[1]
     try:
-        Pw(sys.argv[1]).cmdloop()
+        Pw(path).cmdloop()
     except KeyboardInterrupt:
         print
         pass
