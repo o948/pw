@@ -31,7 +31,7 @@ class Pw(cmd.Cmd, object):
         else:
             self.define_key()
             self.save_data()
-        # fix completer:
+
         try:
             import readline
             self.old_completer_delims = readline.get_completer_delims()
@@ -41,11 +41,8 @@ class Pw(cmd.Cmd, object):
 
 
     def postloop(self):
-        try:
-            import readline
+        if hasattr(self, 'old_completer_delims'):
             readline.set_completer_delims(self.old_completer_delims)
-        except ImportError:
-            pass
 
 
     def default(self, s):
