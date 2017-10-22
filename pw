@@ -2,16 +2,16 @@
 
 import cmd
 import getpass
-import hashlib
 import json
 import os
 import random
 import string
 import subprocess
 import sys
-from Crypto.Cipher import AES
+
 
 class Pw(cmd.Cmd, object):
+
     def __init__(self, path):
         super(Pw, self).__init__()
         self.path = path
@@ -21,11 +21,13 @@ class Pw(cmd.Cmd, object):
         self.undoc_header = 'commands:'
         self.ruler = None
 
+
     def preloop(self):
         if os.path.exists(self.path):
-            with open(self.path, 'rb') as fp:
-                content = fp.read()
-            self.unlock_data(content)
+            while True:
+                self.key = getpass.getpass('password: ')
+                if self.load_data():
+                    break
         else:
             self.define_key()
             self.save_data()
@@ -37,12 +39,14 @@ class Pw(cmd.Cmd, object):
         except ImportError:
             pass
 
+
     def postloop(self):
         try:
             import readline
             readline.set_completer_delims(self.old_completer_delims)
         except ImportError:
             pass
+
 
     def default(self, s):
         if s == 'EOF':
@@ -51,22 +55,28 @@ class Pw(cmd.Cmd, object):
         else:
             self.do_help(None)
 
+
     def emptyline(self):
         pass
+
 
     def do_help(self, s):
         super(Pw, self).do_help(None)
 
+
     def do_exit(self, s):
         sys.exit(0)
+
 
     def do_passwd(self, s):
         self.define_key()
         self.save_data()
 
+
     def do_list(self, s):
         for idx in sorted(self.data.keys()):
             self.print_out(idx)
+
 
     def do_add(self, s):
         s = s.split(None, 3)
@@ -78,6 +88,7 @@ class Pw(cmd.Cmd, object):
             return
         self.data[s[0]] = [s[1], s[2], s[3] if len(s) > 3 else '']
         self.save_data()
+
 
     def do_edit(self, s):
         s = s.split(None, 2)
@@ -91,8 +102,10 @@ class Pw(cmd.Cmd, object):
             self.data[s[0]][1] = s[1]
             self.save_data()
 
+
     def complete_edit(self, text, line, begidx, endidx):
         return self.complete_ids(text, line, begidx, endidx)
+
 
     def do_get(self, s):
         if not s:
@@ -100,8 +113,10 @@ class Pw(cmd.Cmd, object):
             return
         self.get(s, show=False)
 
+
     def complete_get(self, text, line, begidx, endidx):
         return self.complete_ids(text, line, begidx, endidx)
+
 
     def do_show(self, s):
         if not s:
@@ -109,8 +124,10 @@ class Pw(cmd.Cmd, object):
             return
         self.get(s, show=True)
 
+
     def complete_show(self, text, line, begidx, endidx):
         return self.complete_ids(text, line, begidx, endidx)
+
 
     def do_del(self, s):
         if not s:
@@ -123,8 +140,10 @@ class Pw(cmd.Cmd, object):
             del self.data[s]
             self.save_data()
 
+
     def complete_del(self, text, line, begidx, endidx):
         return self.complete_ids(text, line, begidx, endidx)
+
 
     def do_gen0(self, s):
         try:
@@ -133,6 +152,7 @@ class Pw(cmd.Cmd, object):
             self.print_err('Usage: gen0 <length>')
             return
 
+
     def do_gen(self, s):
         try:
             self.gen(s, punct=True)
@@ -140,11 +160,13 @@ class Pw(cmd.Cmd, object):
             self.print_err('Usage: gen <length>')
             return
 
+
     def complete_ids(self, text, line, begidx, endidx):
         argc = len(line.split()) - 1
         if argc > 1 or argc == 1 and begidx == endidx:
             return []
         return filter(lambda x: x.startswith(text), self.data.keys())
+
 
     def gen(self, size, punct=True):
         size = int(size)
@@ -158,6 +180,7 @@ class Pw(cmd.Cmd, object):
             key += random.choice(charset)
         self.print_out(key)
         self.copy_to_clipboard(key)
+
 
     def get(self, idx, show=False):
         if idx not in self.data:
@@ -174,28 +197,47 @@ class Pw(cmd.Cmd, object):
         self.print_out(s)
         self.copy_to_clipboard(passwd)
 
-    def unlock_data(self, encrypted):
-        while True:
-            key = getpass.getpass('password: ')
-            data = self.decrypt(encrypted, key)
-            if data is not None:
-                self.key = key
-                self.data = data
-                return
-            self.print_err('Wrong password!')
 
     def define_key(self):
         while True:
             newkey = getpass.getpass('enter new password: ')
+            if not newkey.strip():
+                continue
             repeat = getpass.getpass('repeat new password: ')
             if newkey == repeat:
                 self.key = newkey
                 return
             self.print_err('Does not match!')
 
+
     def save_data(self):
-        with open(self.path, 'wb') as fp:
-            fp.write(self.encrypt(self.data, self.key))
+        p = subprocess.Popen([
+            'openssl', 'enc', '-e', '-aes-256-cbc',
+            '-pass', 'stdin', '-out', self.path
+        ], stdin=subprocess.PIPE)
+
+        p.communicate(self.key + '\n' + json.dumps(
+            self.data,
+            sort_keys=True,
+            indent=4,
+            separators=(',', ': ')
+        ))
+
+
+    def load_data(self):
+        p = subprocess.Popen([
+            'openssl', 'enc', '-d', '-aes-256-cbc',
+            '-pass', 'stdin', '-in', self.path
+        ], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+
+        stdout, _ = p.communicate(self.key)
+
+        if p.returncode != 0:
+            return False
+
+        self.data = json.loads(stdout)
+        return True
+
 
     def confirm(self):
         while True:
@@ -205,37 +247,23 @@ class Pw(cmd.Cmd, object):
             if ans == 'y':
                 return True
 
+
     def print_out(self, s):
         print '\x1b[32m%s\x1b[0m' % s
+
 
     def print_err(self, s):
         print '\x1b[31m%s\x1b[0m' % s
 
+
     def copy_to_clipboard(self, s):
-        p = subprocess.Popen(['xsel', '-ib'], stdin=subprocess.PIPE)
-        p.stdin.write(s)
-        p.stdin.close()
-        p = subprocess.Popen(['xsel', '-ip'], stdin=subprocess.PIPE)
-        p.stdin.write(s)
-        p.stdin.close()
+        subprocess.Popen(['xsel'], stdin=subprocess.PIPE).communicate(s)
+        subprocess.Popen(['xsel', '-b'], stdin=subprocess.PIPE).communicate(s)
 
-    def encrypt(self, data, key):
-        data = json.dumps(data)
-        data += ' ' * (16 - len(data) % 16)
-        key = hashlib.sha256(key).digest()
-        return AES.new(key, AES.MODE_CBC, '\0' * 16).encrypt(data)
-
-    def decrypt(self, ciphertext, key):
-        key = hashlib.sha256(key).digest()
-        data = AES.new(key, AES.MODE_CBC, '\0' * 16).decrypt(ciphertext)
-        try:
-            return json.loads(data)
-        except ValueError as e:
-            return None
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
-        path = os.getenv('HOME') + '/.passwd'
+        path = os.getenv('HOME') + '/.pw.json.enc'
     else:
         path = sys.argv[1]
     try:

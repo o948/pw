@@ -9,5 +9,5 @@ yet another CLI password manager for GNU/Linux:
 install
 -------
 
-    $ sudo apt-get install xsel python-crypto
+    $ sudo apt-get install openssl xsel
     $ chmod a+x pw
