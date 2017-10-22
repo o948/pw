@@ -17,6 +17,7 @@ class Pw(cmd.Cmd, object):
         self.path = path
         self.data = {}
         self.key = None
+        self.identchars = string.letters + string.digits + string.punctuation
         self.prompt = '> '
         self.undoc_header = 'commands:'
         self.ruler = None
