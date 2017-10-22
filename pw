@@ -93,7 +93,7 @@ class Pw(cmd.Cmd, object):
 
 
     def complete_edit(self, text, line, begidx, endidx):
-        return self.complete_ids(text, line, begidx, endidx)
+        return self.find_ids(text, line, begidx, endidx)
 
 
     def do_get(self, s):
@@ -104,7 +104,7 @@ class Pw(cmd.Cmd, object):
 
 
     def complete_get(self, text, line, begidx, endidx):
-        return self.complete_ids(text, line, begidx, endidx)
+        return self.find_ids(text, line, begidx, endidx)
 
 
     def do_show(self, s):
@@ -115,7 +115,7 @@ class Pw(cmd.Cmd, object):
 
 
     def complete_show(self, text, line, begidx, endidx):
-        return self.complete_ids(text, line, begidx, endidx)
+        return self.find_ids(text, line, begidx, endidx)
 
 
     def do_del(self, s):
@@ -131,7 +131,7 @@ class Pw(cmd.Cmd, object):
 
 
     def complete_del(self, text, line, begidx, endidx):
-        return self.complete_ids(text, line, begidx, endidx)
+        return self.find_ids(text, line, begidx, endidx)
 
 
     def do_gen0(self, s):
@@ -150,7 +150,7 @@ class Pw(cmd.Cmd, object):
             return
 
 
-    def complete_ids(self, text, line, begidx, endidx):
+    def find_ids(self, text, line, begidx, endidx):
         argc = len(line.split()) - 1
         if argc > 1 or argc == 1 and begidx == endidx:
             return []
