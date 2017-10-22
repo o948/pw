@@ -48,7 +48,7 @@ class Pw(cmd.Cmd, object):
     def default(self, s):
         if s == 'EOF':
             print
-            self.do_exit(s)
+            sys.exit(0)
         else:
             self.do_help(None)
 
@@ -59,10 +59,6 @@ class Pw(cmd.Cmd, object):
 
     def do_help(self, s):
         super(Pw, self).do_help(None)
-
-
-    def do_exit(self, s):
-        sys.exit(0)
 
 
     def do_passwd(self, s):
