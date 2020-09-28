@@ -19,14 +19,14 @@ class Pw(cmd.Cmd, object):
         self.key = None
         self.identchars = string.letters + string.digits + string.punctuation
         self.prompt = '> '
-        self.undoc_header = 'commands:'
+        self.undoc_header = 'Commands:'
         self.ruler = None
 
 
     def preloop(self):
         if os.path.exists(self.path):
             while True:
-                self.key = getpass.getpass('password: ')
+                self.key = getpass.getpass('Password: ')
                 if self.load_data():
                     break
         else:
@@ -189,10 +189,10 @@ class Pw(cmd.Cmd, object):
 
     def define_key(self):
         while True:
-            newkey = getpass.getpass('enter new password: ')
+            newkey = getpass.getpass('Enter new password: ')
             if not newkey.strip():
                 continue
-            repeat = getpass.getpass('repeat new password: ')
+            repeat = getpass.getpass('Repeat new password: ')
             if newkey == repeat:
                 self.key = newkey
                 return
@@ -202,6 +202,7 @@ class Pw(cmd.Cmd, object):
     def save_data(self):
         p = subprocess.Popen([
             'openssl', 'enc', '-e', '-aes-256-cbc',
+            '-pbkdf2', '-iter', '100000',
             '-pass', 'stdin', '-out', self.path
         ], stdin=subprocess.PIPE)
 
@@ -216,6 +217,7 @@ class Pw(cmd.Cmd, object):
     def load_data(self):
         p = subprocess.Popen([
             'openssl', 'enc', '-d', '-aes-256-cbc',
+            '-pbkdf2', '-iter', '100000',
             '-pass', 'stdin', '-in', self.path
         ], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
