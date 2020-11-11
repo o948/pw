@@ -1,264 +1,283 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import cmd
 import getpass
-import json
+import gpg
 import os
 import random
+import readline
 import string
 import subprocess
 import sys
 
 
-class Pw(cmd.Cmd, object):
+class Pw(cmd.Cmd):
 
     def __init__(self, path):
-        super(Pw, self).__init__()
-        self.path = path
-        self.data = {}
-        self.key = None
-        self.identchars = string.letters + string.digits + string.punctuation
+        super().__init__()
         self.prompt = '> '
-        self.undoc_header = 'Commands:'
-        self.ruler = None
+        self._path = path
+        self._data = {}
+        self._key = None
+        self._gpg = gpg.Context()
+        self._gpg.set_ctx_flag('no-symkey-cache', '1')
 
 
     def preloop(self):
-        if os.path.exists(self.path):
-            while True:
-                self.key = getpass.getpass('Password: ')
-                if self.load_data():
-                    break
-        else:
-            self.define_key()
-            self.save_data()
+        # Make readline split the line the same way we do.
+        self._old_completer_delims = readline.get_completer_delims()
+        readline.set_completer_delims(string.whitespace)
 
-        try:
-            import readline
-            self.old_completer_delims = readline.get_completer_delims()
-            readline.set_completer_delims(string.whitespace)
-        except ImportError:
-            pass
+        if os.path.exists(self._path):
+            self._load()
+        else:
+            self._define_key()
+            self._save()
 
 
     def postloop(self):
-        if hasattr(self, 'old_completer_delims'):
-            readline.set_completer_delims(self.old_completer_delims)
+        readline.set_completer_delims(self._old_completer_delims)
+
+
+    def cmdloop(self):
+        # Exit cmdloop on ^C.
+        try:
+            super().cmdloop()
+        except KeyboardInterrupt:
+            print()
 
 
     def default(self, s):
+        # Exit the cmdloop on ^D.
         if s == 'EOF':
-            print
-            sys.exit(0)
-        else:
-            self.do_help(None)
+            print()
+            return True
+        self.do_help(s)
 
 
     def emptyline(self):
+        # Do not repeat the previous command.
         pass
 
 
+    def completenames(self, text, line, begidx, endidx):
+        names = super().completenames(text, line, begidx, endidx)
+        if len(names) == 1:
+            names[0] += ' '
+        return names
+
+
     def do_help(self, s):
-        super(Pw, self).do_help(None)
+        print()
+        print('Commands:')
+        for name in self.get_names():
+            if name.startswith('do_') and name != 'do_help':
+                print(getattr(self, name).__doc__)
+        print()
 
 
-    def do_passwd(self, s):
-        self.define_key()
-        self.save_data()
+    def complete_help(self, *ignored):
+        return []
 
 
     def do_add(self, s):
-        s = s.split(None, 3)
-        if len(s) < 3:
-            self.print_err('Usage: add <id> <user> <password> [note]')
+        '''add <id>'''
+        s = s.split()
+        if len(s) != 1:
+            self._print_err('Usage: ' + self.do_add.__doc__)
             return
-        if s[0] in self.data:
-            self.print_err('Id exists!')
+        idx = s[0]
+        if idx in self._data:
+            self._print_err('Id exists!')
             return
-        self.data[s[0]] = [s[1], s[2], s[3] if len(s) > 3 else '']
-        self.save_data()
+        self._data[idx] = []
+        while True:
+            line = input('" ')
+            if not line:
+                break
+            self._data[idx].append(line)
+        self._save()
 
 
-    def do_edit(self, s):
-        s = s.split(None, 2)
-        if len(s) != 2:
-            self.print_err('Usage: edit <id> <new password>')
-            return
-        if s[0] not in self.data:
-            self.print_err('Not found!')
-            return
-        if self.confirm():
-            self.data[s[0]][1] = s[1]
-            self.save_data()
-
-
-    def complete_edit(self, text, line, begidx, endidx):
-        return self.find_ids(text, line, begidx, endidx)
-
-
-    def do_get(self, s):
-        if not s:
-            self.print_err('Usage: get <id>')
-            return
-        self.get(s, show=False)
-
-
-    def complete_get(self, text, line, begidx, endidx):
-        return self.find_ids(text, line, begidx, endidx)
-
-
-    def do_show(self, s):
-        if not s:
-            self.print_err('Usage: show <id>')
-            return
-        self.get(s, show=True)
-
-
-    def complete_show(self, text, line, begidx, endidx):
-        return self.find_ids(text, line, begidx, endidx)
+    def complete_add(self, text, line, begidx, endidx):
+        ps = []
+        for id_ in self._complete_ids(text, line, begidx, endidx):
+            i = id_.find('/')
+            if i == -1:
+                continue
+            p = id_[:i+1]
+            if p not in ps:
+                ps.append(p)
+        return ps
 
 
     def do_del(self, s):
-        if not s:
-            self.print_err('Usage: del <id>')
+        '''del <id>'''
+        s = s.split()
+        if len(s) != 1:
+            self._print_err('Usage: ' + self.do_del.__doc__)
             return
-        if s not in self.data:
-            self.print_err('Not found!')
+        id_ = s[0]
+        if id_ not in self._data:
+            self._print_err('Not found!')
             return
-        if self.confirm():
-            del self.data[s]
-            self.save_data()
+        if not self._confirm():
+            return
+        del self._data[id_]
+        self._save()
 
 
     def complete_del(self, text, line, begidx, endidx):
-        return self.find_ids(text, line, begidx, endidx)
+        return self._complete_ids(text, line, begidx, endidx)
 
 
-    def do_gen0(self, s):
-        try:
-            self.gen(s, punct=False)
-        except ValueError:
-            self.print_err('Usage: gen0 <length>')
+    def do_get(self, s):
+        '''get <id> [+show]'''
+        s = s.split()
+        if not s or len(s) > 2:
+            self._print_err('Usage: ' + self.do_get.__doc__)
             return
+        id_ = s[0]
+        if id_ not in self._data:
+            self._print_err('Not found!')
+            return
+        if not self._data[id_]:
+            return
+        if len(s) == 2:
+            self._print_ok('\n'.join(self._data[id_]))
+        else:
+            self._print_ok('\n'.join(['*' * 10] + self._data[id_][1:]))
+        self._copy_to_clipboard(self._data[id_][0])
+
+
+    def complete_get(self, text, line, begidx, endidx):
+        return self._complete_ids(text, line, begidx, endidx)
 
 
     def do_gen(self, s):
+        '''gen <len> [-punct]'''
+        s = s.split()
+        if not s or len(s) > 2:
+            self._print_err('Usage: ' + self.do_gen.__doc__)
+            return
         try:
-            self.gen(s, punct=True)
+            n = int(s[0])
+            if n < 1:
+                raise ValueError()
         except ValueError:
-            self.print_err('Usage: gen <length>')
+            self._print_err('Usage: ' + self.do_gen.__doc__)
             return
 
+        css = [string.ascii_lowercase, string.ascii_uppercase, string.digits]
+        if len(s) != 2:
+            css.append(string.punctuation)
 
-    def find_ids(self, text, line, begidx, endidx):
-        argc = len(line.split()) - 1
-        if argc > 1 or argc == 1 and begidx == endidx:
+        key = []
+        for cs in css:
+            key.append(random.choice(cs))
+        while len(key) < n:
+            key.append(random.choice(''.join(css)))
+        random.shuffle(key)
+        key = ''.join(key)
+
+        self._print_ok(key)
+        self._copy_to_clipboard(key)
+
+
+    def do_passwd(self, s):
+        '''passwd'''
+        if s:
+            self._print_err('Usage: ' + self.do_passwd.__doc__)
+            return
+        self._define_key()
+        self._save()
+
+
+    def _complete_ids(self, text, line, begidx, endidx):
+        i = len((line[:begidx] + '$').split()) - 1
+        if i != 1:
             return []
-        return filter(lambda x: x.startswith(text), self.data.keys())
+        ids = [id_ for id_ in self._data.keys() if id_.startswith(text)]
+        if len(ids) == 1:
+            ids[0] += ' '
+        return ids
 
 
-    def gen(self, size, punct=True):
-        size = int(size)
-        if size < 1:
-            raise ValueError()
-        charset = string.ascii_letters + string.digits
-        if punct:
-            charset += string.punctuation
-        key = ''
-        for _ in range(size):
-            key += random.choice(charset)
-        self.print_out(key)
-        self.copy_to_clipboard(key)
-
-
-    def get(self, idx, show=False):
-        if idx not in self.data:
-            self.print_err('Not found!')
-            return
-        user, passwd, note = self.data[idx]
-        s = user
-        if show:
-            s += ' : ' + passwd
-        else:
-            s += ' : ******'
-        if note:
-            s += ' | ' + note
-        self.print_out(s)
-        self.copy_to_clipboard(passwd)
-
-
-    def define_key(self):
+    def _define_key(self):
         while True:
             newkey = getpass.getpass('Enter new password: ')
             if not newkey.strip():
                 continue
             repeat = getpass.getpass('Repeat new password: ')
             if newkey == repeat:
-                self.key = newkey
+                self._key = newkey
                 return
-            self.print_err('Does not match!')
+            self._print_err('Does not match!')
 
 
-    def save_data(self):
-        p = subprocess.Popen([
-            'openssl', 'enc', '-e', '-aes-256-cbc',
-            '-pbkdf2', '-iter', '100000',
-            '-pass', 'stdin', '-out', self.path
-        ], stdin=subprocess.PIPE)
-
-        p.communicate(self.key + '\n' + json.dumps(
-            self.data,
-            sort_keys=True,
-            indent=4,
-            separators=(',', ': ')
-        ))
-
-
-    def load_data(self):
-        p = subprocess.Popen([
-            'openssl', 'enc', '-d', '-aes-256-cbc',
-            '-pbkdf2', '-iter', '100000',
-            '-pass', 'stdin', '-in', self.path
-        ], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-
-        stdout, _ = p.communicate(self.key)
-
-        if p.returncode != 0:
-            return False
-
-        self.data = json.loads(stdout)
-        return True
-
-
-    def confirm(self):
+    def _confirm(self):
         while True:
-            ans = raw_input('Are you sure? (y/n): ')
+            ans = input('Are you sure? (y/n): ')
             if ans == 'n':
                 return False
             if ans == 'y':
                 return True
 
 
-    def print_out(self, s):
-        print '\x1b[32m%s\x1b[0m' % s
+    def _print_ok(self, s):
+        print(f'\x1b[32m{s}\x1b[0m')
 
 
-    def print_err(self, s):
-        print '\x1b[31m%s\x1b[0m' % s
+    def _print_err(self, s):
+        print(f'\x1b[31m{s}\x1b[0m')
 
 
-    def copy_to_clipboard(self, s):
-        subprocess.Popen(['xsel'], stdin=subprocess.PIPE).communicate(s)
+    def _copy_to_clipboard(self, s):
+        s = s.encode()
         subprocess.Popen(['xsel', '-b'], stdin=subprocess.PIPE).communicate(s)
+        subprocess.Popen(['xsel', '-p'], stdin=subprocess.PIPE).communicate(s)
+
+
+    def _load(self):
+        with open(self._path, 'rb') as f:
+            cipher = f.read()
+
+        while True:
+            self._key = getpass.getpass('Password: ')
+            try:
+                plain, _, _ = self._gpg.decrypt(cipher, passphrase=self._key)
+                break
+            except gpg.errors.GPGMEError as e:
+                if e.code == gpg.errors.DECRYPT_FAILED:
+                    self._print_err('Wrong!')
+                else:
+                    self._print_err('Error: ' + e.message)
+
+        self._data = {}
+        id_ = None
+        for line in plain.decode().split('\n'):
+            line = line.strip()
+            if not line:
+                id_ = None
+            elif not id_:
+                id_ = line
+                self._data[id_] = []
+            else:
+                self._data[id_].append(line)
+
+
+    def _save(self):
+        plain = ''
+        for id_ in sorted(self._data):
+            plain += '\n'.join([id_] + self._data[id_]) + '\n\n'
+
+        cipher, _, _ = self._gpg.encrypt(plain.encode(), sign=False, passphrase=self._key)
+
+        with open(self._path + '.new', 'wb') as f:
+            f.write(cipher)
+        os.rename(self._path + '.new', self._path)
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 1:
-        path = os.getenv('HOME') + '/.pw.json.enc'
-    else:
-        path = sys.argv[1]
-    try:
-        Pw(path).cmdloop()
-    except KeyboardInterrupt:
-        print
-        pass
+    path = sys.argv[1] if len(sys.argv) > 1 else os.getenv('HOME') + '/.pw.gpg'
+    Pw(path).cmdloop()
