@@ -7,6 +7,6 @@ Yet another CLI password manager for GNU/Linux:
 
 ## Installation
 ```
-$ sudo apt-get install openssl xsel
-$ chmod a+x pw
+$ sudo apt install python3-gpg xsel
+$ chmod +x pw
 ```
